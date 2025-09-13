@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .analytics-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .stat-card.active {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        }
+        .stat-card.paused {
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+        }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+        .controls {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .refresh-btn {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #666;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="analytics-container">
+        <h1>Subscription Analytics Dashboard</h1>
+        
+        <!-- Loading State -->
+        <div id="loading" class="loading">
+            Loading analytics data...
+        </div>
+        
+        <!-- Error State -->
+        <div id="error" class="error" style="display: none;">
+            <h3>Unable to load analytics data</h3>
+            <p id="error-message"></p>
+            <button class="refresh-btn" onclick="loadAnalyticsData()">Retry</button>
+        </div>
+        
+        <!-- Main Content -->
+        <div id="content" style="display: none;">
+            <!-- Summary Stats -->
+            <div class="stats-grid">
+                <div class="stat-card active">
+                    <div class="stat-number" id="total-active">0</div>
+                    <div class="stat-label">Total Active</div>
+                </div>
+                <div class="stat-card paused">
+                    <div class="stat-number" id="total-paused">0</div>
+                    <div class="stat-label">Total Paused</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="total-all">0</div>
+                    <div class="stat-label">Total Subscriptions</div>
+                </div>
+            </div>
+            
+            <!-- Chart -->
+            <div class="chart-container">
+                <div class="chart-wrapper">
+                    <canvas id="analyticsChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Controls -->
+            <div class="controls">
+                <button class="refresh-btn" onclick="loadAnalyticsData()">
+                    Refresh Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let analyticsChart = null;
+        const ML_API_URL = 'http://localhost:5001/analytics';
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAnalyticsData();
+        });
+
+        async function loadAnalyticsData() {
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('content').style.display = 'none';
+
+            try {
+                const response = await fetch(ML_API_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                // Process data for your ML service format
+                const activeData = data.active_vs_paused.active || {};
+                const pausedData = data.active_vs_paused.PAUSED || {};
+                
+                // Get all months and sort them
+                const allMonths = new Set([...Object.keys(activeData), ...Object.keys(pausedData)]);
+                const months = Array.from(allMonths).sort();
+                
+                // Extract counts
+                const activeCounts = months.map(month => activeData[month] || 0);
+                const pausedCounts = months.map(month => pausedData[month] || 0);
+
+                // Update stats
+                updateStats(data.total_active || 0, data.total_paused || 0);
+                
+                // Create/update chart
+                createChart(months, activeCounts, pausedCounts);
+                
+                // Show content
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+                showError(error.message);
+            }
+        }
+
+        function updateStats(active, paused) {
+            document.getElementById('total-active').textContent = active;
+            document.getElementById('total-paused').textContent = paused;
+            document.getElementById('total-all').textContent = active + paused;
+        }
+
+        function createChart(months, activeCounts, pausedCounts) {
+            const ctx = document.getElementById('analyticsChart').getContext('2d');
+            
+            // Destroy existing chart if exists
+            if (analyticsChart) {
+                analyticsChart.destroy();
+            }
+
+            analyticsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: months,
+                    datasets: [
+                        {
+                            label: 'Active Subscriptions',
+                            data: activeCounts,
+                            backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                            borderColor: 'rgba(76, 175, 80, 1)',
+                            borderWidth: 2,
+                        },
+                        {
+                            label: 'Paused Subscriptions',
+                            data: pausedCounts,
+                            backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                            borderColor: 'rgba(244, 67, 54, 1)',
+                            borderWidth: 2,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Active vs Paused Subscriptions by Month',
+                            font: {
+                                size: 18
+                            }
+                        },
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Month'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Subscriptions'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error-message').textContent = message;
+        }
+    </script>
+</body>
+</html>
